@@ -8,6 +8,17 @@ This repository contains the training, calibration, and benchmarking scripts to 
 
 Requires Python 3.9+ and `gcc`.
 
+It is highly recommended to create and activate a virtual environment first:
+```bash
+python -m venv .venv
+
+# On Windows:
+.venv\Scripts\activate
+# On Linux:
+source .venv/bin/activate
+```
+
+Then install dependencies:
 ```bash
 pip install -r req.txt
 ```
