@@ -8,6 +8,12 @@ This repository contains the training, calibration, and benchmarking scripts to 
 
 Requires Python 3.9+ and `gcc`.
 
+First, clone this repository and its submodules (important for `torchlogix`):
+```bash
+git clone --recurse-submodules https://github.com/Arturrio112/LGN-drone-detection.git
+cd LGN-drone-detection
+```
+
 It is highly recommended to create and activate a virtual environment first:
 ```bash
 python -m venv .venv
