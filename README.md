@@ -23,6 +23,7 @@ The `models/` directory contains 4 pre-made baseline models for immediate benchm
 
 ### 1. Train
 Trains a new LGN model and compiles it to C (`compiled_1d.so`).
+*(Note: Training requires the Google Speech Commands dataset to be downloaded locally for background noise balancing. Ensure the path is set correctly in the script's configuration.)*
 ```bash
 python train.py
 ```
