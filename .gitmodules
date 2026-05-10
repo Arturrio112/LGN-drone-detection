@@ -1,0 +1,3 @@
+[submodule "torchlogix"]
+	path = torchlogix
+	url = https://github.com/Arturrio112/torchlogix-mod.git

@@ -1,0 +1,9 @@
+torch
+torchaudio
+numpy
+datasets==2.18.0
+scikit-learn
+tqdm
+librosa
+soundfile
+-e ./torchlogix
