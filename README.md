@@ -34,7 +34,7 @@ pip install -r req.txt
 
 The `models/` directory contains 6 pre-made baseline models for immediate benchmarking:
 - **CNN Models (PyTorch):** One standard 2-layer CNN and one 3-layer CNN.
-- **LGN Models (C-Compiled):** Three standard 2-layer LGNs (`train.py` neural network, represented by `models/saved_models_lgn_bal`, `models/saved_models_lgn_base`, and `models/saved_models_lgn_base4`) and one 3-layer LGN (`train_3layer.py` neural network, represented by `models/saved_models_lgn_3layer`).
+- **LGN Models (C-Compiled):** 4 models total. Three standard 2-layer LGNs (`train.py` neural network, represented by `models/saved_models_lgn_bal`, `models/saved_models_lgn_base`, and `models/saved_models_lgn_base4`) and one 3-layer LGN (`train_3layer.py` neural network, represented by `models/saved_models_lgn_3layer`).
 
 ## Usage
 
@@ -43,8 +43,11 @@ Trains a new LGN model and compiles it to C (`compiled_1d.so`).
 *(Note: Training requires the Google Speech Commands dataset to be downloaded locally for background noise balancing. Ensure the path is set correctly in the script's configuration.)*
 ```bash
 python train.py
+
+# Or to train the 3-layer model:
+python train_3layer.py
 ```
-New models are saved in `models/saved_models_train_<timestamp>/`.
+New models are saved in `models/saved_models_train_<timestamp>/` (or `models/saved_models_3layer_train_<timestamp>/` if using `train_3layer.py`).
 
 ### 2. Calibrate
 Finds the optimal threshold offset for a compiled LGN model to maximize balanced accuracy on the validation set.
@@ -54,14 +57,15 @@ python calibrate.py
 This saves an `offset.txt` in the model directory.
 
 ### 3. Benchmark
-Evaluates all models inside the `models/` folder (both LGN and PyTorch CNNs) on the holdout test set. 
+Evaluates all models inside the `models/` folder (4 LGNs and 2 PyTorch CNNs) on the test set. 
 ```bash
 python benchmark.py
 ```
 Outputs accuracy, latency, RTFx, and memory metrics to `benchmark_final_results.json`.
 
 ## Files
-- `train.py`: Training script and automatic C compilation.
+- `train.py`: Training script and automatic C compilation for 2-layer LGN.
+- `train_3layer.py`: Training script and automatic C compilation for 3-layer LGN.
 - `calibrate.py`: Offset optimization.
 - `benchmark.py`: Inference testing script.
 - `torchlogix/`: LGN operations package.
