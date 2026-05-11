@@ -33,6 +33,8 @@ if os.path.exists(models_dir):
             name = folder_name
             if folder_name.startswith("saved_models_train_"):
                 name = "M_" + folder_name.replace("saved_models_train_", "")
+            elif folder_name.startswith("saved_models_lgn_"):
+                name = "M_" + folder_name.replace("saved_models_lgn_", "")
             
             # Detect CNN models vs LGN models
             if "cnn" in folder_name.lower():
@@ -122,29 +124,7 @@ def get_test_loader():
     full = load_dataset("geronimobasso/drone-audio-detection-samples", split='train')
     test_ds = full.train_test_split(test_size=0.15, seed=42)['test']
     loader = DataLoader(DADS_Benchmark_Dataset(test_ds), batch_size=32, shuffle=False)
-    
-    fps_inputs, _ = next(iter(loader))
-    fps_inputs = fps_inputs[:5]
-    return loader, fps_inputs
-
-# --- LGN FPS reader from JSON ---
-def get_lgn_fps(model_name):
-    try:
-        with open("benchmark_baselines_results.json", "r", encoding="utf-8") as f:
-            data = json.load(f)
-            name_map = {
-                "M_base (LGN)": "$M_{base}$",
-                "M_base4 (LGN)": "$M_{base4}$",
-                "M_bal (LGN)": "$M_{bal}$",
-                "M_3layer (LGN)": "$M_{3layer}$"
-            }
-            target_name = name_map.get(model_name, model_name)
-            for r in data:
-                if r["name"] == target_name:
-                    return r["fps"]
-    except Exception as e:
-        print(f"Could not find FPS in JSON for {model_name}.")
-    return 0.0
+    return loader
 
 def count_lgn_gates(c_path):
     try:
@@ -175,7 +155,15 @@ def run_lgn_benchmark(model_info, test_loader):
     
     print(f"\nTesting LGN (C-Compiled): {model_info['name']}")
     if not os.path.exists(so_path) and os.path.exists(c_path):
-        subprocess.run(['gcc', '-shared', '-fPIC', '-O3', '-o', so_path, c_path], check=True)
+        try:
+            subprocess.run(['gcc', '-shared', '-fPIC', '-O3', '-o', so_path, c_path], check=True)
+        except Exception:
+            pass
+
+    if not os.path.exists(so_path):
+        fallback_so = os.path.join(folder, "compiled_1d.so")
+        if os.path.exists(fallback_so):
+            so_path = fallback_so
         
     offset = 0.0
     if model_info.get("use_offset"):
@@ -189,16 +177,27 @@ def run_lgn_benchmark(model_info, test_loader):
     params_m = count_lgn_gates(c_path)
     size_mb = os.path.getsize(so_path) / (1024 * 1024)
 
-    # --- LATENCY ---
-    dummy = np.zeros((1, 4000), dtype=bool)
-    for _ in range(10): compiled_model(dummy) 
+    # --- LATENCY (Isolated, Batch=1) ---
+    dummy_lat = np.zeros((1, 4000), dtype=bool)
+    for _ in range(10): compiled_model(dummy_lat) 
     
     start_lat = time.perf_counter()
-    for _ in range(100): compiled_model(dummy)
+    for _ in range(100): compiled_model(dummy_lat)
     latency_ms = ((time.perf_counter() - start_lat) / 100) * 1000
 
-    # --- FPS ---
-    fps = get_lgn_fps(model_info["name"])
+    # --- RTFx / THROUGHPUT (Mass, Batch=5) ---
+    dummy_mass = np.zeros((5, 4, 4000), dtype=bool) 
+    for _ in range(10): 
+        for w in range(4): compiled_model(dummy_mass[:, w, :])
+        
+    start_rtfx = time.perf_counter()
+    runs = 50
+    for _ in range(runs):
+        for w in range(4): compiled_model(dummy_mass[:, w, :])
+    elapsed_rtfx = time.perf_counter() - start_rtfx
+    
+    total_audio_sec = 5 * runs # 5 audio clips * 1 second each * runs
+    rtfx = total_audio_sec / elapsed_rtfx
 
     # --- ACCURACY ---
     all_means, all_labels = [], []
@@ -218,15 +217,15 @@ def run_lgn_benchmark(model_info, test_loader):
     bal_acc = balanced_accuracy_score(all_labels, preds) * 100
     tn, fp, fn, tp = confusion_matrix(all_labels, preds).ravel()
 
-    print(f"   Result: Bal.Acc = {bal_acc:.2f}%, FPS = {fps:.2f}")
+    print(f"   Result: Bal.Acc = {bal_acc:.2f}%, RTFx = {rtfx:.2f}")
     print(f"   Latency: {latency_ms:.2f} ms")
     if size_mb > 0: print(f"   Disk size: {size_mb:.3f} MB")
-    if params_m > 0: print(f"   Parameters: {params_m:.2f} M")
+    if params_m > 0: print(f"   Parameters/Gates: {params_m:.2f} M")
     print(f"   RAM/VRAM: {size_mb:.1f} MB")
     
     return {
         "name": model_info["name"], "desc": model_info["desc"],
-        "acc": float(bal_acc), "fps": float(fps),
+        "acc": float(bal_acc), "rtfx": float(rtfx),
         "latency_ms": float(latency_ms),
         "size_mb": float(size_mb),
         "params_m": float(params_m),
@@ -234,7 +233,7 @@ def run_lgn_benchmark(model_info, test_loader):
         "matrix": np.array([[int(tn), int(fp)], [int(fn), int(tp)]])
     }
 
-def run_pytorch_our_cnn(model_info, test_loader, fps_inputs):
+def run_pytorch_our_cnn(model_info, test_loader):
     path = model_info["path"]
     if not os.path.exists(path): 
         print(f"Cannot find model: {path}")
@@ -248,31 +247,42 @@ def run_pytorch_our_cnn(model_info, test_loader, fps_inputs):
     
     params_m = count_parameters(model)
     
-    # --- FPS TESTS & LATENCY (Isolated) ---
-    dummy = torch.randn(1, 1, 4000).to(DEVICE)
+    # --- LATENCY (Isolated, Batch=1) ---
+    dummy_lat = torch.randn(1, 1, 4000, device=DEVICE)
     with torch.no_grad():
-        for _ in range(10): model(dummy)
+        for _ in range(10): model(dummy_lat)
         if DEVICE.type == "cuda": torch.cuda.synchronize()
         start_lat = time.perf_counter()
-        for _ in range(100): model(dummy)
+        for _ in range(100): model(dummy_lat)
         if DEVICE.type == "cuda": torch.cuda.synchronize()
         latency_ms = ((time.perf_counter() - start_lat) / 100) * 1000
 
-        fps_inputs_dev = fps_inputs.to(DEVICE)
-        windows_fps = fps_inputs_dev.unfold(2, 4000, 4000)
-        b_fps, _, n_w_fps, _ = windows_fps.shape
-        start_fps = time.perf_counter()
+    # --- RTFx / THROUGHPUT (Mass, Batch=5) ---
+    dummy_mass = torch.randn(5, 1, 16000, device=DEVICE)
+    windows_mass = dummy_mass.unfold(2, 4000, 4000)
+    with torch.no_grad():
         for _ in range(10):
-            for w in range(n_w_fps): _ = model(windows_fps[:, 0, w, :])
+            for w in range(4): model(windows_mass[:, 0, w, :])
         if DEVICE.type == "cuda": torch.cuda.synchronize()
-        fps = (5 * 10) / (time.perf_counter() - start_fps)
+        
+        start_rtfx = time.perf_counter()
+        runs = 50
+        for _ in range(runs):
+            for w in range(4): model(windows_mass[:, 0, w, :])
+        if DEVICE.type == "cuda": torch.cuda.synchronize()
+        elapsed_rtfx = time.perf_counter() - start_rtfx
+        
+    total_audio_sec = 5 * runs # 5 clips * 1 second each * runs
+    rtfx = total_audio_sec / elapsed_rtfx
 
+    # --- MEMORY ---
     if DEVICE.type == "cuda": 
         vram_mb = torch.cuda.max_memory_allocated() / (1024 * 1024)
         if vram_mb == 0: vram_mb = torch.cuda.memory_reserved() / (1024 * 1024)
     else:
         vram_mb = params_m * 4
 
+    # --- ACCURACY ---
     all_preds, all_labels = [], []
     with torch.no_grad():
         for inputs, labels in tqdm(test_loader, desc=f"   Accuracy {model_info['name']}", leave=False):
@@ -287,14 +297,14 @@ def run_pytorch_our_cnn(model_info, test_loader, fps_inputs):
     tn, fp, fn, tp = confusion_matrix(all_labels, all_preds).ravel()
     bal_acc = balanced_accuracy_score(all_labels, all_preds) * 100
     
-    print(f"   Result: Bal.Acc = {bal_acc:.2f}%, FPS = {fps:.2f}")
+    print(f"   Result: Bal.Acc = {bal_acc:.2f}%, RTFx = {rtfx:.2f}")
     print(f"   Latency: {latency_ms:.2f} ms")
     if params_m > 0: print(f"   Parameters: {params_m:.2f} M")
     if vram_mb > 0: print(f"   RAM/VRAM: {vram_mb:.1f} MB")
     
     return {
         "name": model_info["name"], "desc": model_info["desc"],
-        "acc": float(bal_acc), "fps": float(fps),
+        "acc": float(bal_acc), "rtfx": float(rtfx),
         "latency_ms": float(latency_ms),
         "size_mb": 0.0,
         "params_m": float(params_m),
@@ -309,13 +319,13 @@ if __name__ == "__main__":
     if not MODELS_TO_TEST:
         print("No models found in the 'models' directory.")
     else:
-        loader, fps_inputs = get_test_loader()
+        loader = get_test_loader()
         results = []
         for model_info in MODELS_TO_TEST:
             if model_info["type"] == "lgn":
                 res = run_lgn_benchmark(model_info, loader)
             elif model_info["type"] == "pytorch_cnn":
-                res = run_pytorch_our_cnn(model_info, loader, fps_inputs)
+                res = run_pytorch_our_cnn(model_info, loader)
             else:
                 res = None
             if res: results.append(res)

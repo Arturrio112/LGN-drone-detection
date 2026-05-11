@@ -32,9 +32,9 @@ pip install -r req.txt
 
 ## Pre-trained Models
 
-The `models/` directory contains 4 pre-made baseline models for immediate benchmarking:
+The `models/` directory contains 6 pre-made baseline models for immediate benchmarking:
 - **CNN Models (PyTorch):** One standard 2-layer CNN and one 3-layer CNN.
-- **LGN Models (C-Compiled):** One standard 2-layer LGN and one 3-layer LGN.
+- **LGN Models (C-Compiled):** Three standard 2-layer LGNs (`train.py` neural network, represented by `models/saved_models_lgn_bal`, `models/saved_models_lgn_base`, and `models/saved_models_lgn_base4`) and one 3-layer LGN (`train_3layer.py` neural network, represented by `models/saved_models_lgn_3layer`).
 
 ## Usage
 
@@ -58,7 +58,7 @@ Evaluates all models inside the `models/` folder (both LGN and PyTorch CNNs) on 
 ```bash
 python benchmark.py
 ```
-Outputs accuracy, latency, FPS, and memory metrics to `benchmark_final_results.json`.
+Outputs accuracy, latency, RTFx, and memory metrics to `benchmark_final_results.json`.
 
 ## Files
 - `train.py`: Training script and automatic C compilation.

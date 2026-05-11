@@ -20,7 +20,7 @@ CONFIG = {
         "HOP_LENGTH": 128,
         "N_MELS": 64,
         "NUM_WORKERS": 0,
-        "SAVE_DIR": "./models/saved_models_train_20260510_151620", # Path to the model folder to calibrate
+        "SAVE_DIR": "./models/saved_models_train", # Path to the model folder to calibrate
     },
     "1d": {
         "BATCH_SIZE": 64,
